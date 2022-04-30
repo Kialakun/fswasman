@@ -12,9 +12,9 @@ import (
 )
 
 var (
-	start_script    = flag.String("start", "start.sh", "path to file to execute on start -> default filename 'start.sh'")
-	stop_script     = flag.String("stop", "stop.sh", "path to file to execute on stop -> default filename 'stop.sh'")
-	onchange_script = flag.String("onchange", "onchange", "path to file to execute on file system change 'onchange.sh'")
+	start_script    = flag.String("start", "default", "path to file to execute on start")
+	stop_script     = flag.String("stop", "default", "path to file to execute on stop")
+	onchange_script = flag.String("onchange", "defautlt", "path to file to execute on file system change")
 	version         = "v0.0.6"
 	splash_screen   = `
 			File System Wasman ` + version + `
@@ -25,16 +25,24 @@ var (
 	`
 )
 
+// function to handle execting bash scripts
+func executeScript(script string) {
+	cmd := exec.Command("/bin/bash", script)
+	if script == "default" {
+		cmd = exec.Command("/bin/bash", "echo", "Done.")
+	}
+	stdout, err := cmd.Output()
+	if err != nil {
+		log.Fatal("An error occured while executing script", script, "err:", err)
+	}
+	log.Println(string(stdout))
+}
+
 // stop watching on "ctrl+c"
 func stop(c chan os.Signal, done chan bool, script string) {
 	<-c
 	log.Println("Executing stop script...", script)
-	cmd := exec.Command("/bin/bash", script)
-	stdout, err := cmd.Output()
-	if err != nil {
-		log.Fatal("An error occured while executing stop script, err:", err)
-	}
-	log.Println(string(stdout))
+	executeScript(script)
 	log.Println("Stopping watcher.")
 	done <- true
 }
@@ -42,12 +50,7 @@ func stop(c chan os.Signal, done chan bool, script string) {
 // function for starting a watcher instance
 func start(watcher *fsnotify.Watcher, start string, onchange string, done chan bool) {
 	log.Println("Executing start script...", start)
-	cmd := exec.Command("/bin/bash", start)
-	stdout, err := cmd.Output()
-	if err != nil {
-		log.Fatal("An error occured while executing stop script, err:", err)
-	}
-	log.Println(stdout)
+	executeScript(start)
 	for {
 		select {
 		case <-done:
@@ -61,12 +64,7 @@ func start(watcher *fsnotify.Watcher, start string, onchange string, done chan b
 			if event.Op&fsnotify.Write == fsnotify.Write {
 				log.Println("modified file:", event.Name)
 				log.Println("executing script...")
-				cmd := exec.Command("/bin/bash", onchange)
-				stdout, err := cmd.Output()
-				if err != nil {
-					log.Fatal("An error occured while execting bash script. err:", err)
-				}
-				log.Println(string(stdout))
+				executeScript(onchange)
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
