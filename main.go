@@ -21,7 +21,7 @@ var (
 			----------------------------------				
 			Wasman blo file system.
 			
-			By: GRIM
+			By: Kialakun Galgal https://github.com/Kialakun
 	`
 )
 
