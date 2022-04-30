@@ -1,4 +1,4 @@
-module github.com/Kialakun/watcher
+module github.com/Kialakun/fswasman
 
 go 1.18
 
