@@ -14,26 +14,56 @@ import (
 var (
 	start_script    = flag.String("start", "default", "path to file to execute on start")
 	stop_script     = flag.String("stop", "default", "path to file to execute on stop")
-	onchange_script = flag.String("onchange", "defautlt", "path to file to execute on file system change")
-	version         = "v0.0.6"
+	onchange_script = flag.String("onchange", "default", "path to file to execute on file system change")
+	version         = "v0.1.2"
 	splash_screen   = `
-			File System Wasman ` + version + `
-			----------------------------------				
-			Wasman blo file system.
-			
-			By: Kialakun Galgal https://github.com/Kialakun
-	`
+	
+|	File System Wasman ` + version + `
+|	----------------------------------				
+|	Wasman blo file system.
+|			
+|	By: Kialakun Galgal  https://github.com/Kialakun
+`
 )
+
+func batcher(q chan string) {
+	prev_task := ""
+	counter := 0
+	for {
+		select {
+		case task := <-q:
+			if task != prev_task {
+				log.Println("change detected ...")
+				log.Println("modified file:", task)
+				log.Println("executing script...")
+				executeScript(*onchange_script)
+			} else {
+				counter++
+			}
+			prev_task = task
+			if counter > 2 {
+				// reset task and counter
+				counter = 0
+				prev_task = ""
+			}
+		}
+	}
+}
 
 // function to handle execting bash scripts
 func executeScript(script string) {
-	cmd := exec.Command("/bin/bash", script)
+	var cmd *exec.Cmd
+
+	// if not set, run a defualt script
 	if script == "default" {
-		cmd = exec.Command("/bin/bash", "echo", "Done.")
+		cmd = exec.Command("echo", "Done.")
+	} else {
+		cmd = exec.Command("/bin/bash", script)
 	}
 	stdout, err := cmd.Output()
 	if err != nil {
-		log.Fatal("An error occured while executing script", script, "err:", err)
+		log.Println(string(stdout))
+		log.Fatal("An error occured while executing script ", script, " err:", err)
 	}
 	log.Println(string(stdout))
 }
@@ -43,28 +73,25 @@ func stop(c chan os.Signal, done chan bool, script string) {
 	<-c
 	log.Println("Executing stop script...", script)
 	executeScript(script)
-	log.Println("Stopping watcher.")
+
+	// stop main
 	done <- true
 }
 
 // function for starting a watcher instance
-func start(watcher *fsnotify.Watcher, start string, onchange string, done chan bool) {
+func start(watcher *fsnotify.Watcher, start string, onchange string, q chan string) {
 	log.Println("Executing start script...", start)
 	executeScript(start)
 	for {
+		log.Println("waiting for changes...")
 		select {
-		case <-done:
-			return
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			log.Println("change detected...")
-			log.Println("event:", event)
 			if event.Op&fsnotify.Write == fsnotify.Write {
-				log.Println("modified file:", event.Name)
-				log.Println("executing script...")
-				executeScript(onchange)
+				// add task to que
+				q <- event.String() + ":" + event.Name
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -96,12 +123,17 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
+	// create task que
+	q := make(chan string, 1)
+
 	// start go routine for listening and handling changes
-	log.Println("waiting for changes...")
-	go start(watcher, *start_script, *onchange_script, done)
+	go start(watcher, *start_script, *onchange_script, q)
 
 	// start stop wathcer listener on seperate go routine
 	go stop(c, done, *stop_script)
+
+	// start batcher to automatically clear previous events after exec_delay
+	go batcher(q)
 
 	// star watching directories
 	for _, dir := range DIRS {
